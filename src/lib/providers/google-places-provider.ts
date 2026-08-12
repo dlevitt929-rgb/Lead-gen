@@ -1,4 +1,4 @@
-import type { BusinessSearchParams, LeadProvider, LeadProviderSearchResult, RawBusinessResult } from "./types";
+import type { BusinessPhotoRef, BusinessSearchParams, LeadProvider, LeadProviderSearchResult, RawBusinessResult } from "./types";
 import { findCategory } from "./categories";
 
 const BASE = "https://maps.googleapis.com/maps/api/place";
@@ -35,6 +35,7 @@ interface GooglePlaceDetails {
   opening_hours?: { weekday_text?: string[] };
   address_components?: { long_name: string; short_name: string; types: string[] }[];
   geometry?: { location: { lat: number; lng: number } };
+  photos?: { photo_reference: string; width: number; height: number; html_attributions?: string[] }[];
 }
 
 function apiKey() {
@@ -73,12 +74,23 @@ async function fetchDetails(placeId: string): Promise<GooglePlaceDetails | null>
     "opening_hours",
     "address_components",
     "geometry",
+    "photos",
   ].join(",");
   const url = `${BASE}/details/json?place_id=${placeId}&fields=${fields}&key=${key}`;
   const res = await fetch(url);
   if (!res.ok) return null;
   const data = (await res.json()) as { result?: GooglePlaceDetails; status: string };
   return data.result ?? null;
+}
+
+function toPhotoRefs(photos: GooglePlaceDetails["photos"]): BusinessPhotoRef[] | undefined {
+  if (!photos?.length) return undefined;
+  return photos.slice(0, 6).map((p) => ({
+    photoReference: p.photo_reference,
+    width: p.width,
+    height: p.height,
+    attributions: (p.html_attributions ?? []).map((a) => a.replace(/<[^>]+>/g, "").trim()).filter(Boolean),
+  }));
 }
 
 function toRawResult(details: GooglePlaceDetails): RawBusinessResult {
@@ -106,6 +118,7 @@ function toRawResult(details: GooglePlaceDetails): RawBusinessResult {
     latitude: details.geometry?.location.lat,
     longitude: details.geometry?.location.lng,
     openingHours: details.opening_hours?.weekday_text,
+    photos: toPhotoRefs(details.photos),
   };
 }
 

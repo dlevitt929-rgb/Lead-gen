@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -11,7 +10,6 @@ import {
   MapPin,
   BookmarkPlus,
   Loader2,
-  Sparkles,
   ExternalLink,
   MessageCircle,
   RefreshCw,
@@ -27,6 +25,8 @@ import { ContactInfoCard } from "@/components/business/contact-info-card";
 import { WebsiteAuditPanel } from "@/components/business/website-audit-panel";
 import { SalesAnglePanel } from "@/components/business/sales-angle-panel";
 import { TimelinePanel } from "@/components/business/timeline-panel";
+import { WebsiteConceptsPanel } from "@/components/business/website-concepts-panel";
+import { PrepareForCallButton } from "@/components/business/prepare-for-call-button";
 import { formatCurrencyRange, formatDate } from "@/lib/utils";
 import { LEAD_STATUSES, LEAD_STATUS_LABEL } from "@/lib/lead-status";
 import type { BusinessDetail } from "@/types/business";
@@ -166,10 +166,14 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
     }
   }
 
-  async function handleGenerateDemo() {
+  async function handleGenerateDemo(style?: string) {
     setGeneratingDemo(true);
     try {
-      const res = await fetch(`/api/businesses/${business.id}/demo`, { method: "POST" });
+      const res = await fetch(`/api/businesses/${business.id}/demo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(style ? { style } : {}),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       toast.success("Website concept generated.");
@@ -218,6 +222,7 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
         description={undefined}
         actions={
           <div className="flex items-center gap-2">
+            <PrepareForCallButton businessId={business.id} onDone={refetchBusiness} />
             {phone && (
               <Button variant="outline" asChild>
                 <a href={`tel:${phone}`}>
@@ -326,6 +331,7 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="audit">Website Audit</TabsTrigger>
             <TabsTrigger value="angle">Sales Angle</TabsTrigger>
+            <TabsTrigger value="concepts">Website Concepts{business.demos.length > 0 ? ` (${business.demos.length})` : ""}</TabsTrigger>
             <TabsTrigger value="timeline">Timeline & Notes</TabsTrigger>
           </TabsList>
 
@@ -355,35 +361,23 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
           </TabsContent>
 
           <TabsContent value="angle" className="mt-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">Personalized talking points for {repName ? repName.split(" ")[0] : "your"} next call.</p>
-              <Button variant="secondary" onClick={handleGenerateDemo} disabled={generatingDemo}>
-                {generatingDemo ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                Generate Website Concept
-              </Button>
-            </div>
+            <p className="text-sm text-muted-foreground">Personalized talking points for {repName ? repName.split(" ")[0] : "your"} next call.</p>
             <SalesAnglePanel angle={angle?.data ?? null} source={angle?.source ?? null} loading={generatingAngle} onGenerate={handleGenerateAngle} />
+          </TabsContent>
+
+          <TabsContent value="concepts" className="mt-4">
+            <WebsiteConceptsPanel
+              demos={business.demos}
+              generating={generatingDemo}
+              onGenerate={handleGenerateDemo}
+              onChanged={refetchBusiness}
+            />
           </TabsContent>
 
           <TabsContent value="timeline" className="mt-4">
             <TimelinePanel activities={business.activities} hasLead={Boolean(lead)} onAddNote={handleAddNote} onScheduleFollowUp={handleScheduleFollowUp} />
           </TabsContent>
         </Tabs>
-
-        {business.demos.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Website concepts generated</p>
-            <div className="flex flex-wrap gap-2">
-              {business.demos.map((d) => (
-                <Link key={d.id} href={`/demo/${d.id}`}>
-                  <Badge variant="outline" className="cursor-pointer hover:bg-accent">
-                    {d.title} · {formatDate(d.createdAt)}
-                  </Badge>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

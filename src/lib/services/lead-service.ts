@@ -91,8 +91,9 @@ export async function listLeads(userId: string, filters: LeadFilters = {}) {
         include: {
           locations: { where: { isPrimary: true }, take: 1 },
           contacts: true,
-          website: true,
+          website: { include: { audits: { orderBy: { performedAt: "desc" }, take: 1 } } },
           leadScores: { orderBy: { computedAt: "desc" }, take: 1 },
+          demos: { orderBy: { createdAt: "desc" }, take: 1 },
         },
       },
       tags: { include: { tag: true } },

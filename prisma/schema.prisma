@@ -271,6 +271,10 @@ model Business {
   websiteAbsenceStatus WebsiteAbsenceStatus @default(UNKNOWN)
   websiteCheckedAt     DateTime? // when presence was last checked (regardless of outcome)
   websiteCheckSource   String? // e.g. "Google Places API", "OpenStreetMap (inconclusive)"
+  // Real photo references (never inline image bytes) from a provider, used by
+  // business-image-service to source real business photos with provenance.
+  // e.g. Google Places: [{ photoReference, width, height, attributions }]
+  photosJson           Json?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
@@ -502,14 +506,20 @@ model Proposal {
 }
 
 model Demo {
-  id          String   @id @default(cuid())
-  leadId      String?
-  businessId  String
-  userId      String
-  title       String
-  contentJson Json
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  leadId       String?
+  businessId   String
+  userId       String
+  title        String
+  // Non-sequential, unguessable token for private shareable /preview/[token]
+  // links — deliberately separate from `id` so leaking a preview link never
+  // exposes anything about internal record ordering.
+  previewToken String   @unique
+  style        String   @default("modern-minimal")
+  contentJson  Json // structured WebsiteConcept — see website-concept-types.ts
+  version      Int      @default(1) // bumped by generator changes to the concept shape
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   lead     Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)

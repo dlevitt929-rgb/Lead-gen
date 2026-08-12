@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import type { RawBusinessResult } from "@/lib/providers/types";
-import type { Business, ContactType, DataConfidence } from "@prisma/client";
+import type { Business, ContactType, DataConfidence, Prisma } from "@prisma/client";
 
 /**
  * Persists (or refreshes) a business discovered by a lead provider.
@@ -23,6 +23,7 @@ export async function upsertBusinessFromRaw(raw: RawBusinessResult): Promise<Bus
     reviewCount: raw.reviewCount,
     googleMapsUrl: raw.googleMapsUrl,
     openingHoursJson: raw.openingHours ? raw.openingHours : undefined,
+    photosJson: raw.photos?.length ? (raw.photos as unknown as Prisma.InputJsonValue) : undefined,
     lastCheckedAt: new Date(),
   };
 

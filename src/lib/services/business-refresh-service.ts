@@ -67,6 +67,10 @@ export async function refreshBusinessData(businessId: string): Promise<RefreshRe
   mergeScalar("googleMapsUrl", business.googleMapsUrl, fresh.googleMapsUrl);
   if (fresh.categories?.length) businessUpdate.categoriesJson = fresh.categories;
   if (fresh.openingHours?.length) businessUpdate.openingHoursJson = fresh.openingHours;
+  if (fresh.photos?.length) {
+    businessUpdate.photosJson = fresh.photos;
+    changedFields.push("photos");
+  }
 
   await db.business.update({ where: { id: businessId }, data: businessUpdate });
 

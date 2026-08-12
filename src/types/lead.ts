@@ -22,11 +22,19 @@ export interface OpportunityRow {
     categoryPrimary: string;
     rating: number | null;
     reviewCount: number | null;
+    lastCheckedAt: string | null;
+    websiteCheckedAt: string | null;
+    websiteCheckSource: string | null;
     locations: { city: string | null; suburb: string | null }[];
     contacts: { type: ContactType; value: string; confidence: DataConfidence }[];
-    website: { url: string; status: WebsiteStatus | null } | null;
+    website: {
+      url: string;
+      status: WebsiteStatus | null;
+      audits: { issuesJson: unknown; performedAt: string }[];
+    } | null;
     websiteAbsenceStatus: WebsiteAbsenceStatus;
     leadScores: { score: number; quality: LeadQuality; confidence: string; reasonsJson: unknown; breakdownJson: unknown }[];
+    demos: { id: string; title: string }[];
   };
 }
 

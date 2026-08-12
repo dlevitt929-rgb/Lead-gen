@@ -42,6 +42,15 @@ export interface RawBusinessResult {
   longitude?: number;
   openingHours?: string[];
   socialLinks?: { type: "INSTAGRAM" | "FACEBOOK" | "LINKEDIN" | "TWITTER"; url: string }[];
+  /** Real photo references from the provider (never inline bytes) — used by business-image-service. */
+  photos?: BusinessPhotoRef[];
+}
+
+export interface BusinessPhotoRef {
+  photoReference: string;
+  width: number;
+  height: number;
+  attributions: string[];
 }
 
 export interface LeadProviderSearchResult {
