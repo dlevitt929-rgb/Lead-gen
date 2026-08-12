@@ -90,7 +90,7 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
 
       setRows(filtered);
       setWarnings(data.warnings);
-      if (filtered.length === 0 && data.warnings.length === 0) {
+      if (filtered.length === 0) {
         toast.info("No businesses found for this search — try widening the radius or category.");
       }
       if (opts?.saveSearch) {
@@ -246,7 +246,7 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
         </>
       )}
 
-      {!loading && hasSearched && rows.length === 0 && warnings.length === 0 && (
+      {!loading && hasSearched && rows.length === 0 && (
         <EmptyState
           icon={SearchX}
           title="No businesses found"
