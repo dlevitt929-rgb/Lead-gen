@@ -158,6 +158,21 @@ enum LeadQuality {
   @@map("lead_quality")
 }
 
+enum WebsiteAbsenceStatus {
+  UNKNOWN // not yet checked, or checked only by a low-confidence source (e.g. OSM's absent website tag)
+  CONFIRMED_NONE // a reasonably authoritative source (e.g. Google Places) reported no website
+
+  @@map("website_absence_status")
+}
+
+enum LeadConfidence {
+  HIGH
+  MEDIUM
+  LOW
+
+  @@map("lead_confidence")
+}
+
 enum LeadStatus {
   NEW
   RESEARCHING
@@ -236,21 +251,28 @@ enum IntegrationProvider {
 // ---------------------------------------------------------------------------
 
 model Business {
-  id               String     @id @default(cuid())
-  name             String
-  categoryPrimary  String
-  categoriesJson   Json       @default("[]")
-  description      String?
-  dataSource       DataSource
-  sourcePlaceId    String? // e.g. Google Place ID or OSM node/way id
-  sourceUrl        String? // e.g. Google Maps place URL
-  rating           Float?
-  reviewCount      Int?
-  googleMapsUrl    String?
-  openingHoursJson Json?
-  lastCheckedAt    DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  id                   String               @id @default(cuid())
+  name                 String
+  categoryPrimary      String
+  categoriesJson       Json                 @default("[]")
+  description          String?
+  dataSource           DataSource
+  sourcePlaceId        String? // e.g. Google Place ID or OSM node/way id
+  sourceUrl            String? // e.g. Google Maps place URL
+  rating               Float?
+  reviewCount          Int?
+  googleMapsUrl        String?
+  openingHoursJson     Json?
+  lastCheckedAt        DateTime? // last time business data (name/address/phone/etc.) was fetched from a provider
+  // Website presence is a tri-state, not a boolean: a business only ever
+  // moves out of UNKNOWN when a check actually happened. Absence of a
+  // `website` field from a sparse provider (OSM in particular) must never
+  // be silently read as "confirmed no website" — see website-discovery-service.
+  websiteAbsenceStatus WebsiteAbsenceStatus @default(UNKNOWN)
+  websiteCheckedAt     DateTime? // when presence was last checked (regardless of outcome)
+  websiteCheckSource   String? // e.g. "Google Places API", "OpenStreetMap (inconclusive)"
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
   locations     BusinessLocation[]
   contacts      Contact[]
@@ -308,8 +330,8 @@ model Contact {
 }
 
 model Website {
-  id              String        @id @default(cuid())
-  businessId      String        @unique
+  id              String         @id @default(cuid())
+  businessId      String         @unique
   url             String
   finalUrl        String?
   hasSsl          Boolean?
@@ -318,12 +340,12 @@ model Website {
   metaDescription String?
   hasViewportMeta Boolean?
   technologyGuess String?
-  firstSeenAt     DateTime      @default(now())
+  firstSeenAt     DateTime       @default(now())
   lastFetchedAt   DateTime?
   lastFetchError  String?
   status          WebsiteStatus?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   audits   WebsiteAudit[]
@@ -355,13 +377,15 @@ model WebsiteAudit {
 }
 
 model LeadScore {
-  id          String      @id @default(cuid())
-  businessId  String
-  score       Int
-  quality     LeadQuality
-  reasonsJson Json        @default("[]")
-  version     Int         @default(1)
-  computedAt  DateTime    @default(now())
+  id            String         @id @default(cuid())
+  businessId    String
+  score         Int
+  quality       LeadQuality
+  confidence    LeadConfidence @default(MEDIUM)
+  reasonsJson   Json           @default("[]")
+  breakdownJson Json? // per-category subtotals + itemized reasons, see lead-score-explainer
+  version       Int            @default(2)
+  computedAt    DateTime       @default(now())
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 

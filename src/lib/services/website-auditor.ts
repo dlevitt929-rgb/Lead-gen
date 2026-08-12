@@ -302,3 +302,11 @@ export function websiteStatusFromScore(overall: number): WebsiteStatus {
   if (overall >= 50) return "AVERAGE";
   return "POOR";
 }
+
+export const AUDIT_STALE_AFTER_DAYS = 30;
+
+export function isAuditStale(performedAt: Date | string, maxAgeDays = AUDIT_STALE_AFTER_DAYS): boolean {
+  const date = typeof performedAt === "string" ? new Date(performedAt) : performedAt;
+  const ageDays = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
+  return ageDays > maxAgeDays;
+}

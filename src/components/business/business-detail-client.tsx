@@ -14,6 +14,8 @@ import {
   Sparkles,
   ExternalLink,
   MessageCircle,
+  RefreshCw,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +31,16 @@ import { formatCurrencyRange, formatDate } from "@/lib/utils";
 import { LEAD_STATUSES, LEAD_STATUS_LABEL } from "@/lib/lead-status";
 import type { BusinessDetail } from "@/types/business";
 import type { SalesAngle } from "@/lib/services/ai-sales-assistant";
+import type { ScoreBreakdown } from "@/lib/services/lead-scoring";
 import type { LeadStatus } from "@prisma/client";
+
+const BUSINESS_DATA_STALE_AFTER_DAYS = 14;
+
+function isDataStale(checkedAt: Date | string) {
+  const date = typeof checkedAt === "string" ? new Date(checkedAt) : checkedAt;
+  const ageDays = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24);
+  return ageDays > BUSINESS_DATA_STALE_AFTER_DAYS;
+}
 
 export function BusinessDetailClient({ business: initial, repName }: { business: BusinessDetail; repName?: string | null }) {
   const router = useRouter();
@@ -40,6 +51,8 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
   const [generatingDemo, setGeneratingDemo] = React.useState(false);
   const [angle, setAngle] = React.useState<{ data: SalesAngle; source: "ai" | "fallback" } | null>(null);
   const [updatingStatus, setUpdatingStatus] = React.useState(false);
+  const [verifyingWebsite, setVerifyingWebsite] = React.useState(false);
+  const [refreshingData, setRefreshingData] = React.useState(false);
 
   const lead = business.leads[0];
   const location = business.locations.find((l) => l.isPrimary) ?? business.locations[0];
@@ -103,6 +116,39 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
       toast.error(err instanceof Error ? err.message : "Audit failed.");
     } finally {
       setAuditing(false);
+    }
+  }
+
+  async function handleVerifyWebsite() {
+    setVerifyingWebsite(true);
+    try {
+      const res = await fetch(`/api/businesses/${business.id}/verify-website`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const { discovery } = data;
+      if (discovery.status === "PRESENT") toast.success(`Website found: ${discovery.url} (via ${discovery.source}).`);
+      else if (discovery.status === "CONFIRMED_NONE") toast.info(`No verified website found (checked via ${discovery.source}).`);
+      else toast.info("Still can't confirm either way — try again once Google Places is configured for a more authoritative check.");
+      await refetchBusiness();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Website verification failed.");
+    } finally {
+      setVerifyingWebsite(false);
+    }
+  }
+
+  async function handleRefreshData() {
+    setRefreshingData(true);
+    try {
+      const res = await fetch(`/api/businesses/${business.id}/refresh`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(data.message ?? "Business data refreshed.");
+      await refetchBusiness();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not refresh business data.");
+    } finally {
+      setRefreshingData(false);
     }
   }
 
@@ -244,6 +290,19 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
             Source: {business.dataSource === "GOOGLE_PLACES" ? "Google Places API" : "OpenStreetMap"}
             {business.lastCheckedAt && ` · checked ${formatDate(business.lastCheckedAt)}`}
           </span>
+          {business.lastCheckedAt && isDataStale(business.lastCheckedAt) && (
+            <Badge variant="warning">Data needs refresh</Badge>
+          )}
+          <Button variant="ghost" size="sm" onClick={handleRefreshData} disabled={refreshingData} className="h-6 px-2 text-xs">
+            {refreshingData ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+            Refresh Business Data
+          </Button>
+          {!business.website && (
+            <Button variant="ghost" size="sm" onClick={handleVerifyWebsite} disabled={verifyingWebsite} className="h-6 px-2 text-xs">
+              {verifyingWebsite ? <Loader2 className="size-3 animate-spin" /> : <Search className="size-3" />}
+              Verify Website
+            </Button>
+          )}
         </div>
 
         {lead && (lead.estimatedValueMin || lead.estimatedValueMax) && (
@@ -271,12 +330,28 @@ export function BusinessDetailClient({ business: initial, repName }: { business:
           </TabsList>
 
           <TabsContent value="overview" className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <OpportunityScoreCard score={score?.score ?? null} quality={score?.quality ?? null} reasons={(score?.reasonsJson as unknown as string[]) ?? []} computedAt={score?.computedAt ?? null} />
+            <OpportunityScoreCard
+              score={score?.score ?? null}
+              quality={score?.quality ?? null}
+              confidence={score?.confidence ?? null}
+              reasons={(score?.reasonsJson as unknown as string[]) ?? []}
+              breakdown={(score?.breakdownJson as unknown as ScoreBreakdown) ?? null}
+              computedAt={score?.computedAt ?? null}
+            />
             <ContactInfoCard contacts={business.contacts} location={location ?? null} openingHours={business.openingHoursJson as string[] | null} />
           </TabsContent>
 
           <TabsContent value="audit" className="mt-4">
-            <WebsiteAuditPanel website={business.website} loading={auditing} onRunAudit={handleAudit} />
+            <WebsiteAuditPanel
+              website={business.website}
+              loading={auditing}
+              onRunAudit={handleAudit}
+              absenceStatus={business.websiteAbsenceStatus}
+              websiteCheckedAt={business.websiteCheckedAt}
+              websiteCheckSource={business.websiteCheckSource}
+              verifying={verifyingWebsite}
+              onVerifyWebsite={handleVerifyWebsite}
+            />
           </TabsContent>
 
           <TabsContent value="angle" className="mt-4 space-y-4">

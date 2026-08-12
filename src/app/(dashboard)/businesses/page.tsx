@@ -67,7 +67,7 @@ export default async function BusinessesPage({ searchParams }: { searchParams: P
                       )}
                     </div>
                     <div className="mt-3 flex items-center justify-between">
-                      <WebsiteStatusBadge website={b.website} />
+                      <WebsiteStatusBadge website={b.website} absenceStatus={b.websiteAbsenceStatus} />
                       {b.leads.length > 0 && <span className="text-xs font-medium text-primary">Saved lead</span>}
                     </div>
                   </Card>

@@ -180,4 +180,10 @@ export const googlePlacesProvider: LeadProvider = {
 
     return { results };
   },
+
+  async refreshOne(sourcePlaceId: string) {
+    if (!apiKey()) return null;
+    const details = await fetchDetails(sourcePlaceId);
+    return details ? toRawResult(details) : null;
+  },
 };

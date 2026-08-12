@@ -55,6 +55,8 @@ export interface LeadProvider {
   requiresApiKey: boolean;
   isConfigured(): boolean;
   search(params: BusinessSearchParams): Promise<LeadProviderSearchResult>;
+  /** Re-fetches a single business by the ID this provider originally gave it, for freshness refresh. Returns null if it can no longer be found. */
+  refreshOne?(sourcePlaceId: string): Promise<RawBusinessResult | null>;
 }
 
 export class ProviderNotConfiguredError extends Error {

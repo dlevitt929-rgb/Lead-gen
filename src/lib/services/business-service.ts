@@ -73,6 +73,29 @@ export async function upsertBusinessFromRaw(raw: RawBusinessResult): Promise<Bus
       update: { url: raw.website },
       create: { businessId: business.id, url: raw.website },
     });
+    await db.business.update({
+      where: { id: business.id },
+      data: { websiteCheckedAt: new Date(), websiteCheckSource: sourceLabel },
+    });
+  } else if (!existing?.websiteAbsenceStatus || existing.websiteAbsenceStatus !== "CONFIRMED_NONE") {
+    // No website field from this provider does NOT mean "confirmed no
+    // website" — it just means this particular source didn't have one.
+    // Google Places actively solicits website URLs from owners, so an empty
+    // field there is a reasonably confident negative signal. OpenStreetMap's
+    // tagging is crowd-sourced and often incomplete, so its silence proves
+    // nothing — leave those as UNKNOWN rather than a false negative.
+    // Never downgrade an existing CONFIRMED_NONE back to UNKNOWN.
+    const hasExistingWebsite = await db.website.findUnique({ where: { businessId: business.id } });
+    if (!hasExistingWebsite) {
+      await db.business.update({
+        where: { id: business.id },
+        data: {
+          websiteAbsenceStatus: raw.dataSource === "GOOGLE_PLACES" ? "CONFIRMED_NONE" : "UNKNOWN",
+          websiteCheckedAt: new Date(),
+          websiteCheckSource: raw.dataSource === "GOOGLE_PLACES" ? sourceLabel : `${sourceLabel} (no website tag — inconclusive)`,
+        },
+      });
+    }
   }
 
   return business;

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Star, Phone, Globe, Gauge, BookmarkPlus, BookmarkCheck, Loader2, ExternalLink, MapPin } from "lucide-react";
+import { Star, Phone, Globe, Gauge, BookmarkPlus, BookmarkCheck, Loader2, ExternalLink, MapPin, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScoreBadge } from "@/components/shared/score-badge";
@@ -14,14 +14,18 @@ export function ResultsTable({
   rows,
   savingIds,
   auditingIds,
+  verifyingIds,
   onSave,
   onAudit,
+  onVerify,
 }: {
   rows: SearchResultRow[];
   savingIds: Set<string>;
   auditingIds: Set<string>;
+  verifyingIds: Set<string>;
   onSave: (businessId: string) => void;
   onAudit: (businessId: string) => void;
+  onVerify: (businessId: string) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border">
@@ -42,6 +46,7 @@ export function ResultsTable({
             const phone = row.contacts.find((c) => c.type === "PHONE")?.value;
             const isSaving = savingIds.has(row.business.id);
             const isAuditing = auditingIds.has(row.business.id);
+            const isVerifying = verifyingIds.has(row.business.id);
 
             return (
               <TableRow key={row.business.id}>
@@ -80,11 +85,17 @@ export function ResultsTable({
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <WebsiteStatusBadge website={row.website} />
+                    <WebsiteStatusBadge website={row.website} absenceStatus={row.business.websiteAbsenceStatus} />
                     {row.website && !row.website.status && (
                       <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={isAuditing} onClick={() => onAudit(row.business.id)}>
                         {isAuditing ? <Loader2 className="size-3 animate-spin" /> : <Gauge className="size-3" />}
                         Audit
+                      </Button>
+                    )}
+                    {!row.website && (
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={isVerifying} onClick={() => onVerify(row.business.id)}>
+                        {isVerifying ? <Loader2 className="size-3 animate-spin" /> : <Search className="size-3" />}
+                        Verify
                       </Button>
                     )}
                   </div>

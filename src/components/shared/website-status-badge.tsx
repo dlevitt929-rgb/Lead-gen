@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import type { WebsiteStatus } from "@prisma/client";
-import { Ban, Clock } from "lucide-react";
+import type { WebsiteStatus, WebsiteAbsenceStatus } from "@prisma/client";
+import { Ban, Clock, HelpCircle } from "lucide-react";
 
 const STATUS_CONFIG: Record<WebsiteStatus, { label: string; variant: "destructive" | "warning" | "secondary" | "success" }> = {
   NONE: { label: "No website", variant: "destructive" },
@@ -10,16 +10,33 @@ const STATUS_CONFIG: Record<WebsiteStatus, { label: string; variant: "destructiv
 };
 
 /**
- * `website` is null when the business has no known website at all.
- * `website.status` is null when a website exists but hasn't been audited yet.
+ * `website` is null when no website URL is currently known for this
+ * business. That is NOT the same as "confirmed no website" — most of the
+ * time it just means it hasn't been verified yet (see
+ * website-discovery-service). `absenceStatus` distinguishes the two:
+ * CONFIRMED_NONE (a source like Google Places actively checked and found
+ * none) vs UNKNOWN (nobody's confirmed either way).
  */
-export function WebsiteStatusBadge({ website }: { website: { status: WebsiteStatus | null } | null | undefined }) {
+export function WebsiteStatusBadge({
+  website,
+  absenceStatus = "UNKNOWN",
+}: {
+  website: { status: WebsiteStatus | null } | null | undefined;
+  absenceStatus?: WebsiteAbsenceStatus;
+}) {
   if (!website) {
-    const config = STATUS_CONFIG.NONE;
+    if (absenceStatus === "CONFIRMED_NONE") {
+      return (
+        <Badge variant="destructive">
+          <Ban className="size-3" />
+          No verified website
+        </Badge>
+      );
+    }
     return (
-      <Badge variant={config.variant}>
-        <Ban className="size-3" />
-        {config.label}
+      <Badge variant="secondary">
+        <HelpCircle className="size-3" />
+        Website unknown
       </Badge>
     );
   }

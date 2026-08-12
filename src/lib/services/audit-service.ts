@@ -3,10 +3,17 @@ import { auditWebsite, overallScoreFromAudit, websiteStatusFromScore } from "@/l
 import { recomputeLeadScore } from "@/lib/services/scoring-service";
 import type { Prisma } from "@prisma/client";
 
+export class NoWebsiteKnownError extends Error {
+  constructor() {
+    super("This business has no known website yet — verify a website before running an audit.");
+    this.name = "NoWebsiteKnownError";
+  }
+}
+
 export async function runAndSaveAudit(businessId: string) {
   const business = await db.business.findUnique({ where: { id: businessId }, include: { website: true } });
   if (!business?.website) {
-    throw new Error("This business has no known website to audit.");
+    throw new NoWebsiteKnownError();
   }
 
   const audit = await auditWebsite(business.website.url);

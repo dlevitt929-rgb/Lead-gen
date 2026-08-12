@@ -67,7 +67,7 @@ export function MapSidebar({ business, onClose, onSaved }: { business: MapBusine
             </div>
           )}
           <div className="flex items-center gap-2">
-            <Globe className="size-4 text-muted-foreground" /> <WebsiteStatusBadge website={business.website} />
+            <Globe className="size-4 text-muted-foreground" /> <WebsiteStatusBadge website={business.website} absenceStatus={business.websiteAbsenceStatus} />
           </div>
         </div>
 

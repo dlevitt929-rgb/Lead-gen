@@ -15,12 +15,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Skeleton } from "@/components/ui/skeleton";
 import { SearchForm, DEFAULT_SEARCH_VALUES, type SearchFormValues } from "@/components/lead-finder/search-form";
 import { ResultsTable } from "@/components/lead-finder/results-table";
+import { SearchProgress, type ProgressStep } from "@/components/lead-finder/search-progress";
 import { formatRelativeTime } from "@/lib/utils";
 import type { DataSourceId } from "@/lib/providers/types";
 import type { SearchResponse, SearchResultRow } from "@/types/search";
+
+type StreamEvent =
+  | { type: "status"; message: string }
+  | { type: "progress"; done: number; total: number }
+  | ({ type: "result" } & SearchResponse)
+  | { type: "error"; message: string };
 
 interface SavedSearch {
   id: string;
@@ -36,11 +42,14 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
   const [warnings, setWarnings] = React.useState<{ provider: string; message: string }[]>([]);
   const [savingIds, setSavingIds] = React.useState<Set<string>>(new Set());
   const [auditingIds, setAuditingIds] = React.useState<Set<string>>(new Set());
+  const [verifyingIds, setVerifyingIds] = React.useState<Set<string>>(new Set());
   const [lastValues, setLastValues] = React.useState<SearchFormValues | null>(null);
   const [savedSearches, setSavedSearches] = React.useState<SavedSearch[]>([]);
   const [showSaveInput, setShowSaveInput] = React.useState(false);
   const [saveName, setSaveName] = React.useState("");
   const [rerunValues, setRerunValues] = React.useState<SearchFormValues | null>(null);
+  const [steps, setSteps] = React.useState<ProgressStep[]>([]);
+  const [counter, setCounter] = React.useState<{ done: number; total: number } | null>(null);
 
   const loadSavedSearches = React.useCallback(async () => {
     const res = await fetch("/api/searches");
@@ -58,6 +67,16 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
     setLoading(true);
     setHasSearched(true);
     setLastValues(values);
+    setSteps([]);
+    setCounter(null);
+
+    function pushStep(message: string) {
+      setSteps((prev) => [...prev.map((s) => ({ ...s, state: "done" as const })), { message, state: "active" as const }]);
+    }
+    function finishSteps() {
+      setSteps((prev) => prev.map((s) => ({ ...s, state: "done" as const })));
+    }
+
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -76,29 +95,73 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
           searchName: opts?.searchName,
         }),
       });
-      const data = (await res.json()) as SearchResponse & { error?: string };
-      if (!res.ok) {
-        toast.error(data.error ?? "Search failed.");
-        setRows([]);
-        setWarnings([]);
-        return;
+
+      if (!res.body) {
+        throw new Error("Search service returned no response body.");
+      }
+      if (!res.ok && res.headers.get("content-type")?.includes("application/x-ndjson") !== true) {
+        throw new Error(`Search failed (HTTP ${res.status}).`);
       }
 
-      let filtered = data.businesses;
-      if (values.minRating > 0) filtered = filtered.filter((r) => (r.business.rating ?? 0) >= values.minRating);
-      if (values.minReviews > 0) filtered = filtered.filter((r) => (r.business.reviewCount ?? 0) >= values.minReviews);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let settled = false;
 
-      setRows(filtered);
-      setWarnings(data.warnings);
-      if (filtered.length === 0) {
-        toast.info("No businesses found for this search — try widening the radius or category.");
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line) continue;
+
+          let event: StreamEvent;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "status") {
+            pushStep(event.message);
+          } else if (event.type === "progress") {
+            setCounter({ done: event.done, total: event.total });
+          } else if (event.type === "result") {
+            settled = true;
+            finishSteps();
+            let filtered = event.businesses;
+            if (values.minRating > 0) filtered = filtered.filter((r) => (r.business.rating ?? 0) >= values.minRating);
+            if (values.minReviews > 0) filtered = filtered.filter((r) => (r.business.reviewCount ?? 0) >= values.minReviews);
+
+            setRows(filtered);
+            setWarnings(event.warnings);
+            if (filtered.length === 0) {
+              toast.info("No businesses found for this search — try widening the radius or category.");
+            }
+            if (opts?.saveSearch) {
+              toast.success("Search saved — rerun it anytime from Saved Searches.");
+              loadSavedSearches();
+            }
+          } else if (event.type === "error") {
+            settled = true;
+            toast.error(event.message);
+            setRows([]);
+            setWarnings([]);
+          }
+        }
       }
-      if (opts?.saveSearch) {
-        toast.success("Search saved — rerun it anytime from Saved Searches.");
-        loadSavedSearches();
+
+      if (!settled) {
+        throw new Error("Search ended unexpectedly before returning results.");
       }
-    } catch {
-      toast.error("Something went wrong reaching the search service.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Something went wrong reaching the search service.");
+      setRows([]);
+      setWarnings([]);
     } finally {
       setLoading(false);
     }
@@ -144,6 +207,46 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
       toast.error(err instanceof Error ? err.message : "Audit failed.");
     } finally {
       setAuditingIds((s) => {
+        const next = new Set(s);
+        next.delete(businessId);
+        return next;
+      });
+    }
+  }
+
+  async function handleVerify(businessId: string) {
+    setVerifyingIds((s) => new Set(s).add(businessId));
+    try {
+      const res = await fetch(`/api/businesses/${businessId}/verify-website`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      const updated = await fetch(`/api/businesses/${businessId}`).then((r) => (r.ok ? r.json() : null));
+      if (updated) {
+        setRows((rs) =>
+          rs.map((r) =>
+            r.business.id === businessId
+              ? {
+                  ...r,
+                  business: { ...r.business, websiteAbsenceStatus: updated.websiteAbsenceStatus },
+                  website: updated.website,
+                  contacts: updated.contacts,
+                  score: data.scoreResult.score,
+                  quality: data.scoreResult.quality,
+                }
+              : r,
+          ),
+        );
+      }
+
+      const { discovery } = data;
+      if (discovery.status === "PRESENT") toast.success(`Website found: ${discovery.url}`);
+      else if (discovery.status === "CONFIRMED_NONE") toast.info("No verified website found.");
+      else toast.info("Still can't confirm either way.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Website verification failed.");
+    } finally {
+      setVerifyingIds((s) => {
         const next = new Set(s);
         next.delete(businessId);
         return next;
@@ -206,13 +309,7 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
         </div>
       )}
 
-      {loading && (
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full" />
-          ))}
-        </div>
-      )}
+      {loading && <SearchProgress steps={steps} counter={counter} />}
 
       {!loading && hasSearched && rows.length > 0 && (
         <>
@@ -242,7 +339,15 @@ export function LeadFinderClient({ configuredProviders }: { configuredProviders:
               </Button>
             )}
           </div>
-          <ResultsTable rows={rows} savingIds={savingIds} auditingIds={auditingIds} onSave={handleSave} onAudit={handleAudit} />
+          <ResultsTable
+            rows={rows}
+            savingIds={savingIds}
+            auditingIds={auditingIds}
+            verifyingIds={verifyingIds}
+            onSave={handleSave}
+            onAudit={handleAudit}
+            onVerify={handleVerify}
+          />
         </>
       )}
 

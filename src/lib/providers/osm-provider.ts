@@ -200,4 +200,30 @@ export const osmProvider: LeadProvider = {
 
     return { results: deduped };
   },
+
+  async refreshOne(sourcePlaceId: string) {
+    const [elType, rawId] = sourcePlaceId.split("/");
+    if ((elType !== "node" && elType !== "way" && elType !== "relation") || !rawId) return null;
+
+    const query =
+      elType === "node"
+        ? `[out:json][timeout:15];node(${rawId});out tags;`
+        : `[out:json][timeout:15];${elType}(${rawId});out center tags;`;
+
+    let res: Response;
+    try {
+      res = await fetch(OVERPASS_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
+        body: query,
+      });
+    } catch {
+      return null;
+    }
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as OverpassResponse;
+    const element = data.elements[0];
+    return element ? toRawResult(element) : null;
+  },
 };

@@ -1,4 +1,4 @@
-import type { LeadStatus, LeadQuality, WebsiteStatus, DataConfidence, ContactType } from "@prisma/client";
+import type { LeadStatus, LeadQuality, WebsiteStatus, WebsiteAbsenceStatus, DataConfidence, ContactType } from "@prisma/client";
 
 // Shape of a lead row as it comes back from GET /api/leads (JSON — Date
 // fields arrive as ISO strings, unlike the Prisma-native service return type).
@@ -25,7 +25,8 @@ export interface OpportunityRow {
     locations: { city: string | null; suburb: string | null }[];
     contacts: { type: ContactType; value: string; confidence: DataConfidence }[];
     website: { url: string; status: WebsiteStatus | null } | null;
-    leadScores: { score: number; quality: LeadQuality; reasonsJson: unknown }[];
+    websiteAbsenceStatus: WebsiteAbsenceStatus;
+    leadScores: { score: number; quality: LeadQuality; confidence: string; reasonsJson: unknown; breakdownJson: unknown }[];
   };
 }
 

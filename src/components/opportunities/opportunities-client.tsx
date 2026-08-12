@@ -333,7 +333,7 @@ export function OpportunitiesClient() {
                       </TableCell>
                       <TableCell>{row.business.rating ? `${row.business.rating.toFixed(1)} (${row.business.reviewCount})` : "—"}</TableCell>
                       <TableCell>
-                        <WebsiteStatusBadge website={row.business.website} />
+                        <WebsiteStatusBadge website={row.business.website} absenceStatus={row.business.websiteAbsenceStatus} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">{phone ?? "—"}</TableCell>
                       <TableCell>
