@@ -1,0 +1,583 @@
+// LeadForge — data model
+//
+// Design notes:
+// - Business/BusinessLocation/Contact/Website/WebsiteAudit are a shared cache of
+//   real-world data: once a business is discovered it is stored once and reused,
+//   the same way a CRM separates "company" data from "my relationship to them".
+// - Lead is the per-user relationship to a Business (pipeline state, value estimate,
+//   ownership). Everything sales-workflow related hangs off Lead.
+// - Every fact that could be wrong carries a DataConfidence + source string so the
+//   UI can always show provenance and never presents inferred data as verified.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth (Auth.js / NextAuth credentials + adapter tables)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  passwordHash  String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts   Account[]
+  sessions   Session[]
+  leads      Lead[]
+  calls      Call[]
+  notes      Note[]
+  followUps  FollowUp[]
+  proposals  Proposal[]
+  demos      Demo[]
+  searches   Search[]
+  activities Activity[]
+  tags       Tag[]
+  settings   UserSettings?
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model UserSettings {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  productName    String   @default("LeadForge")
+  currency       String   @default("ZAR")
+  defaultCountry String   @default("South Africa")
+  defaultRegion  String?
+  defaultCity    String?
+  packagesJson   Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum DataSource {
+  GOOGLE_PLACES
+  OPENSTREETMAP
+  MANUAL
+  OTHER
+
+  @@map("data_source")
+}
+
+enum DataConfidence {
+  VERIFIED // directly returned by an authoritative API (e.g. Google Places)
+  PUBLIC // scraped from the business's own public website/social page
+  AI_INFERRED // an AI model's inference, never treated as fact
+  ESTIMATED // a heuristic estimate (e.g. value range)
+
+  @@map("data_confidence")
+}
+
+enum ContactType {
+  PHONE
+  EMAIL
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  LINKEDIN
+  TWITTER
+  WEBSITE
+  OTHER
+
+  @@map("contact_type")
+}
+
+enum WebsiteStatus {
+  NONE
+  POOR
+  AVERAGE
+  GOOD
+
+  @@map("website_status")
+}
+
+enum LeadQuality {
+  HOT
+  STRONG
+  MEDIUM
+  LOW
+
+  @@map("lead_quality")
+}
+
+enum LeadStatus {
+  NEW
+  RESEARCHING
+  CALL_TODAY
+  CALLED
+  NO_ANSWER
+  CALL_BACK
+  INTERESTED
+  DEMO_REQUESTED
+  PROPOSAL_SENT
+  NEGOTIATING
+  WON
+  LOST
+  DO_NOT_CONTACT
+
+  @@map("lead_status")
+}
+
+enum CallOutcome {
+  ANSWERED
+  NO_ANSWER
+  VOICEMAIL
+  INTERESTED
+  NOT_INTERESTED
+  CALL_BACK
+  WRONG_NUMBER
+  DO_NOT_CONTACT
+
+  @@map("call_outcome")
+}
+
+enum ActivityType {
+  LEAD_DISCOVERED
+  LEAD_SAVED
+  AUDIT_COMPLETED
+  SCORE_COMPUTED
+  CALL_LOGGED
+  NOTE_ADDED
+  STATUS_CHANGED
+  FOLLOW_UP_SCHEDULED
+  FOLLOW_UP_COMPLETED
+  DEMO_GENERATED
+  PROPOSAL_CREATED
+  PROPOSAL_SENT
+  TAG_ADDED
+  TAG_REMOVED
+  DO_NOT_CONTACT_MARKED
+
+  @@map("activity_type")
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+
+  @@map("proposal_status")
+}
+
+enum IntegrationProvider {
+  GOOGLE_PLACES
+  GOOGLE_PAGESPEED
+  GOOGLE_MAPS
+  ANTHROPIC
+  OPENAI
+  OPENSTREETMAP
+
+  @@map("integration_provider")
+}
+
+// ---------------------------------------------------------------------------
+// Shared real-world data cache
+// ---------------------------------------------------------------------------
+
+model Business {
+  id               String     @id @default(cuid())
+  name             String
+  categoryPrimary  String
+  categoriesJson   Json       @default("[]")
+  description      String?
+  dataSource       DataSource
+  sourcePlaceId    String? // e.g. Google Place ID or OSM node/way id
+  sourceUrl        String? // e.g. Google Maps place URL
+  rating           Float?
+  reviewCount      Int?
+  googleMapsUrl    String?
+  openingHoursJson Json?
+  lastCheckedAt    DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  locations     BusinessLocation[]
+  contacts      Contact[]
+  website       Website?
+  leadScores    LeadScore[]
+  leads         Lead[]
+  activities    Activity[]
+  searchResults SearchResult[]
+  demos         Demo[]
+
+  @@unique([dataSource, sourcePlaceId])
+  @@index([categoryPrimary])
+  @@index([name])
+  @@map("businesses")
+}
+
+model BusinessLocation {
+  id               String   @id @default(cuid())
+  businessId       String
+  isPrimary        Boolean  @default(true)
+  addressFormatted String?
+  country          String?
+  region           String? // province / state
+  city             String?
+  suburb           String?
+  postalCode       String?
+  latitude         Float?
+  longitude        Float?
+  createdAt        DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([country, region, city])
+  @@index([latitude, longitude])
+  @@map("business_locations")
+}
+
+model Contact {
+  id         String         @id @default(cuid())
+  businessId String
+  type       ContactType
+  value      String
+  label      String?
+  confidence DataConfidence
+  source     String // human-readable provenance, e.g. "Google Places API" or "Business website footer"
+  verifiedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, type, value])
+  @@index([businessId])
+  @@map("contacts")
+}
+
+model Website {
+  id              String        @id @default(cuid())
+  businessId      String        @unique
+  url             String
+  finalUrl        String?
+  hasSsl          Boolean?
+  httpStatus      Int?
+  title           String?
+  metaDescription String?
+  hasViewportMeta Boolean?
+  technologyGuess String?
+  firstSeenAt     DateTime      @default(now())
+  lastFetchedAt   DateTime?
+  lastFetchError  String?
+  status          WebsiteStatus?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  audits   WebsiteAudit[]
+
+  @@map("websites")
+}
+
+model WebsiteAudit {
+  id                 String   @id @default(cuid())
+  websiteId          String
+  performedAt        DateTime @default(now())
+  source             String // "pagespeed" | "heuristic"
+  performanceScore   Int?
+  mobileScore        Int?
+  seoScore           Int?
+  accessibilityScore Int?
+  designScore        Int?
+  conversionScore    Int?
+  loadTimeMs         Int?
+  summary            String?  @db.Text
+  issuesJson         Json     @default("[]")
+  rawDataJson        Json?
+  createdAt          DateTime @default(now())
+
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@index([websiteId])
+  @@map("website_audits")
+}
+
+model LeadScore {
+  id          String      @id @default(cuid())
+  businessId  String
+  score       Int
+  quality     LeadQuality
+  reasonsJson Json        @default("[]")
+  version     Int         @default(1)
+  computedAt  DateTime    @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, computedAt])
+  @@map("lead_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Per-user sales workflow
+// ---------------------------------------------------------------------------
+
+model Lead {
+  id                    String     @id @default(cuid())
+  userId                String
+  businessId            String
+  status                LeadStatus @default(NEW)
+  estimatedValueMin     Int?
+  estimatedValueMax     Int?
+  estimatedRecurringMin Int?
+  estimatedRecurringMax Int?
+  doNotContact          Boolean    @default(false)
+  savedAt               DateTime   @default(now())
+  lastContactedAt       DateTime?
+  nextActionAt          DateTime?
+  nextActionNote        String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business   Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  calls      Call[]
+  notes      Note[]
+  followUps  FollowUp[]
+  proposals  Proposal[]
+  demos      Demo[]
+  activities Activity[]
+  tags       LeadTag[]
+
+  @@unique([userId, businessId])
+  @@index([userId, status])
+  @@index([userId, nextActionAt])
+  @@map("leads")
+}
+
+model Call {
+  id              String      @id @default(cuid())
+  leadId          String
+  userId          String
+  calledAt        DateTime    @default(now())
+  outcome         CallOutcome
+  durationSeconds Int?
+  notes           String?     @db.Text
+  createdAt       DateTime    @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([userId, calledAt])
+  @@map("calls")
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  leadId    String
+  userId    String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("notes")
+}
+
+model FollowUp {
+  id          String    @id @default(cuid())
+  leadId      String
+  userId      String
+  dueAt       DateTime
+  note        String?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dueAt])
+  @@index([leadId])
+  @@map("follow_ups")
+}
+
+model Proposal {
+  id             String         @id @default(cuid())
+  leadId         String
+  userId         String
+  title          String
+  packageName    String?
+  priceOnce      Int?
+  priceRecurring Int?
+  status         ProposalStatus @default(DRAFT)
+  notes          String?        @db.Text
+  sentAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@map("proposals")
+}
+
+model Demo {
+  id          String   @id @default(cuid())
+  leadId      String?
+  businessId  String
+  userId      String
+  title       String
+  contentJson Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lead     Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([leadId])
+  @@map("demos")
+}
+
+model Search {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String?
+  isSaved    Boolean  @default(false)
+  paramsJson Json
+  lastRunAt  DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  results SearchResult[]
+
+  @@index([userId, isSaved])
+  @@map("searches")
+}
+
+model SearchResult {
+  id         String   @id @default(cuid())
+  searchId   String
+  businessId String
+  isNew      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  search   Search   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([searchId, businessId])
+  @@map("search_results")
+}
+
+model Activity {
+  id           String       @id @default(cuid())
+  userId       String
+  businessId   String?
+  leadId       String?
+  type         ActivityType
+  message      String
+  metadataJson Json?
+  createdAt    DateTime     @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
+  @@index([businessId, createdAt])
+  @@index([userId, createdAt])
+  @@map("activities")
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String   @default("#6366f1")
+  createdAt DateTime @default(now())
+
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leads LeadTag[]
+
+  @@unique([userId, name])
+  @@map("tags")
+}
+
+model LeadTag {
+  leadId String
+  tagId  String
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, tagId])
+  @@map("lead_tags")
+}
+
+model IntegrationStatus {
+  id            String              @id @default(cuid())
+  provider      IntegrationProvider @unique
+  configured    Boolean             @default(false)
+  lastCheckedAt DateTime?
+  lastError     String?
+  updatedAt     DateTime            @updatedAt
+
+  @@map("integration_status")
+}
